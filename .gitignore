@@ -1,0 +1,14 @@
+frontend/node_modules/
+frontend/.angular/
+frontend/dist/
+backend/bin/
+backend/obj/
+backend/Data/*.db
+backend/Data/*.db-shm
+backend/Data/*.db-wal
+.runtime/
+tests/.tmp/
+*.user
+*.suo
+.DS_Store
+

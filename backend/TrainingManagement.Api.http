@@ -1,0 +1,146 @@
+@baseUrl = http://localhost:5080
+@adminUsername = admin
+@adminPassword = REPLACE_WITH_LOCAL_SECRET
+@accessToken = REPLACE_WITH_LOGIN_ACCESS_TOKEN
+@registerUsername = REPLACE_WITH_NEW_USERNAME
+@registerPassword = REPLACE_WITH_NEW_PASSWORD_MIN_12_CHARACTERS
+
+### Anonymous health
+GET {{baseUrl}}/api/health
+
+### Register an Employee account (no JWT is issued; login afterward)
+POST {{baseUrl}}/api/auth/register
+Content-Type: application/json
+
+{
+  "username": "{{registerUsername}}",
+  "displayName": "新使用者",
+  "password": "{{registerPassword}}",
+  "confirmPassword": "{{registerPassword}}"
+}
+
+### Login (read local credentials from .runtime/development.secrets.json)
+POST {{baseUrl}}/api/auth/login
+Content-Type: application/json
+
+{
+  "username": "{{adminUsername}}",
+  "password": "{{adminPassword}}"
+}
+
+### Current user
+GET {{baseUrl}}/api/auth/me
+Authorization: Bearer {{accessToken}}
+
+### Dashboard (completed attendee-hours, non-cancelled registrations)
+GET {{baseUrl}}/api/dashboard
+Authorization: Bearer {{accessToken}}
+
+### Courses
+GET {{baseUrl}}/api/courses
+Authorization: Bearer {{accessToken}}
+
+### Create course (change dates when needed)
+POST {{baseUrl}}/api/courses
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "title": "跨部門協作工作坊",
+  "description": "工作案例與團隊演練。",
+  "category": "職場素養",
+  "instructor": "林佳穎",
+  "location": "總部 3F 培訓教室",
+  "format": "InPerson",
+  "startDate": "2026-11-02T09:00:00+08:00",
+  "endDate": "2026-11-02T17:00:00+08:00",
+  "durationHours": 6,
+  "capacity": 20,
+  "status": "Published"
+}
+
+### Employees
+GET {{baseUrl}}/api/employees
+Authorization: Bearer {{accessToken}}
+
+### Create employee
+POST {{baseUrl}}/api/employees
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "employeeNumber": "EMP100",
+  "name": "陳小華",
+  "email": "hua@example.com",
+  "department": "資訊技術部",
+  "jobTitle": "工程師",
+  "isActive": true
+}
+
+### Enrollments
+GET {{baseUrl}}/api/enrollments
+Authorization: Bearer {{accessToken}}
+
+### Admin: list registered accounts awaiting employee creation
+GET {{baseUrl}}/api/accounts
+Authorization: Bearer {{accessToken}}
+
+### Admin: create a new employee for a registered account
+POST {{baseUrl}}/api/accounts/2/employee
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "employeeNumber": "EMP101",
+  "name": "王小明",
+  "email": "ming@example.com",
+  "department": "資訊技術部",
+  "jobTitle": "工程師",
+  "isActive": true
+}
+
+### Employee: show own enrollments (use the employee account JWT)
+GET {{baseUrl}}/api/enrollments/mine
+Authorization: Bearer {{accessToken}}
+
+### Employee: enroll self in a Published course (use the employee account JWT)
+POST {{baseUrl}}/api/enrollments/self
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "courseId": 7
+}
+
+### Employee: cancel own active enrollment (replace the enrollment ID)
+POST {{baseUrl}}/api/enrollments/42/cancel
+Authorization: Bearer {{accessToken}}
+
+### Register (replace IDs with an active employee and Published course)
+POST {{baseUrl}}/api/enrollments
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "courseId": 7,
+  "employeeId": 10
+}
+
+### Complete training (replace the enrollment ID)
+PUT {{baseUrl}}/api/enrollments/58
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "status": "Completed",
+  "progress": 100,
+  "score": 92
+}
+
+### OpenAPI (Development)
+GET {{baseUrl}}/openapi/v1.json
+Authorization: Bearer {{accessToken}}
+
+### Logout (invalidates all previous tokens for this user)
+POST {{baseUrl}}/api/auth/logout
+Authorization: Bearer {{accessToken}}
