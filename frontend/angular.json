@@ -1,0 +1,29 @@
+{
+  "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
+  "version": 1,
+  "newProjectRoot": "projects",
+  "projects": {
+    "training-management-web": {
+      "projectType": "application",
+      "root": "",
+      "sourceRoot": "src",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:application",
+          "options": { "outputPath": "dist/training-management-web", "browser": "src/main.ts", "polyfills": [], "tsConfig": "tsconfig.app.json", "styles": ["src/styles.css"], "index": "src/index.html" },
+          "configurations": {
+            "production": { "budgets": [{ "type": "initial", "maximumWarning": "750kB", "maximumError": "1MB" }, { "type": "anyComponentStyle", "maximumWarning": "20kB", "maximumError": "25kB" }], "outputHashing": "all" },
+            "development": { "optimization": false, "extractLicenses": false, "sourceMap": true }
+          },
+          "defaultConfiguration": "production"
+        },
+        "serve": {
+          "builder": "@angular/build:dev-server",
+          "options": { "proxyConfig": "proxy.conf.json" },
+          "configurations": { "production": { "buildTarget": "training-management-web:build:production" }, "development": { "buildTarget": "training-management-web:build:development" } },
+          "defaultConfiguration": "development"
+        }
+      }
+    }
+  }
+}
