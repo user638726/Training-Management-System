@@ -1,4 +1,4 @@
-import { HttpErrorResponse } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule, NgForm } from '@angular/forms';
@@ -43,6 +43,7 @@ import { IconComponent } from './icon.component';
               <button type="submit" class="button primary login-submit">@if (submitting()) { <span class="loading-spinner"></span>正在登入… } @else { 登入工作台<app-icon name="arrow" /> }</button>
             </fieldset>
           </form>
+          @if (sso()?.enabled) { <a class="button secondary" style="width:100%;justify-content:center;margin-top:16px" href="/api/auth/sso/start">{{sso()?.label}}</a> }
           @if (auth.hasSession() && !auth.user() && !verifying()) { <button type="button" class="button secondary restore-session-button" [disabled]="submitting()" (click)="restoreSession()"><app-icon name="refresh" />重新驗證登入狀態</button> }
           <p class="auth-switch">還沒有帳號？<a routerLink="/register" [queryParams]="{ returnUrl }">建立帳號<app-icon name="arrow" /></a></p>
           <div class="login-help"><app-icon name="shield" /><div><strong>您的企業專屬學習空間</strong><p>請使用您的帳號登入。<br>如需帳號或密碼協助，請聯繫系統管理員。</p></div></div>
@@ -54,6 +55,8 @@ import { IconComponent } from './icon.component';
 })
 export class LoginComponent {
   auth = inject(AuthService);
+  private http = inject(HttpClient);
+  sso = signal<{ enabled: boolean; label: string } | null>(null);
   private route = inject(ActivatedRoute);
   private router = inject(Router);
   private destroyRef = inject(DestroyRef);
@@ -76,12 +79,20 @@ export class LoginComponent {
       unavailable: '目前無法驗證登入狀態，請稍後重新驗證或登入。',
       logout: '您已登出帳號，歡迎隨時回來繼續管理。',
       'logout-unavailable': '您已從此裝置登出；伺服器暫時無法連線完成登出驗證。',
-      registered: '帳號已建立！管理員可在員工管理的「註冊帳號」清單核對資料並建立員工。請使用新帳號登入。'
+      registered: '帳號已建立！管理員可在員工管理的「註冊帳號」清單核對資料並建立員工。若公司啟用註冊審核，請等待管理員核准後再登入。'
     };
     return messages[this.noticeReason() || ''] || '';
   });
 
   constructor() {
+    this.http.get<{ enabled: boolean; label: string }>('/api/auth/sso/config').pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: v => this.sso.set(v), error: () => {} });
+    const code = new URLSearchParams(location.hash.slice(1)).get('ssoCode');
+    if (code) {
+      history.replaceState(null, '', location.pathname); this.verifying.set(true);
+      this.auth.redeemSso(code).pipe(takeUntilDestroyed(this.destroyRef), finalize(() => this.verifying.set(false))).subscribe({ next: () => void this.router.navigateByUrl(this.returnUrl, { replaceUrl: true }), error: () => this.error.set('企業登入失敗或交換碼已到期，請重新登入。') });
+      return;
+    }
+    if (this.route.snapshot.queryParamMap.has('ssoError')) this.error.set('企業登入尚未完成，請確認帳號已核准並綁定公司身分。');
     if (this.auth.user()) void this.router.navigateByUrl(this.returnUrl, { replaceUrl: true });
     else if (this.auth.hasSession() && this.noticeReason() !== 'unavailable') this.restoreSession();
   }

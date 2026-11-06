@@ -14,7 +14,7 @@ namespace TrainingManagement.Api.Controllers;
 [ApiController]
 [Route("api/auth")]
 public sealed class AuthController(TrainingDbContext db, IPasswordHasher<AppUser> hasher,
-    DummyPasswordHash dummyHash, JwtTokenService tokens) : ControllerBase
+    DummyPasswordHash dummyHash, JwtTokenService tokens, IConfiguration config) : ControllerBase
 {
     [HttpPost("register")]
     [AllowAnonymous]
@@ -27,7 +27,7 @@ public sealed class AuthController(TrainingDbContext db, IPasswordHasher<AppUser
         var user = new AppUser
         {
             Username = request.Username, NormalizedUsername = normalized,
-            DisplayName = request.DisplayName, Role = "Employee", IsActive = true, TokenVersion = 0
+            DisplayName = request.DisplayName, Role = "Employee", IsActive = true, IsApproved = !config.GetValue("Enterprise:RequireRegistrationApproval", true), TokenVersion = 0
         };
         user.PasswordHash = hasher.HashPassword(user, request.Password);
         db.AppUsers.Add(user);
@@ -52,8 +52,10 @@ public sealed class AuthController(TrainingDbContext db, IPasswordHasher<AppUser
         var normalized = request.Username.Trim().ToUpperInvariant();
         var user = await db.AppUsers.SingleOrDefaultAsync(x => x.NormalizedUsername == normalized, cancellationToken);
         var verification = hasher.VerifyHashedPassword(user ?? new AppUser(), user?.PasswordHash ?? dummyHash.Value, request.Password);
-        if (user is null || !user.IsActive || verification == PasswordVerificationResult.Failed)
+        if (user is null || !user.IsActive || !user.IsApproved || verification == PasswordVerificationResult.Failed)
         {
+            db.AuditEvents.Add(new AuditEvent { ActorName = request.Username, Action = "LoginFailed", EntityType = "Authentication", TraceId = HttpContext.TraceIdentifier });
+            await db.SaveChangesAsync(cancellationToken);
             Response.Headers.WWWAuthenticate = "Bearer";
             throw new ApiException(401, "帳號或密碼不正確。");
         }
@@ -62,6 +64,8 @@ public sealed class AuthController(TrainingDbContext db, IPasswordHasher<AppUser
             user.PasswordHash = hasher.HashPassword(user, request.Password);
             await db.SaveChangesAsync(cancellationToken);
         }
+        db.AuditEvents.Add(new AuditEvent { ActorId = user.Id, ActorName = user.Username, Action = "LoginSucceeded", EntityType = "Authentication", EntityId = user.Id.ToString(), TraceId = HttpContext.TraceIdentifier });
+        await db.SaveChangesAsync(cancellationToken);
         return Ok(tokens.Issue(user));
     }
 
@@ -79,6 +83,8 @@ public sealed class AuthController(TrainingDbContext db, IPasswordHasher<AppUser
         var id = int.Parse(User.FindFirstValue("sub")!);
         await db.AppUsers.Where(x => x.Id == id).ExecuteUpdateAsync(
             updates => updates.SetProperty(x => x.TokenVersion, x => x.TokenVersion + 1), cancellationToken);
+        db.AuditEvents.Add(new AuditEvent { ActorId = id, ActorName = User.Identity?.Name ?? "", Action = "Logout", EntityType = "Authentication", EntityId = id.ToString(), TraceId = HttpContext.TraceIdentifier });
+        await db.SaveChangesAsync(cancellationToken);
         return NoContent();
     }
 }

@@ -1,5 +1,35 @@
 # SQL Server、JWT 與註冊驗證紀錄
 
+## 2026-11-06 八項進階企業功能版本
+
+- 完成多階簽核／代理、班次／候補／行事曆、職能／成長計畫、預算／核銷、外部證照、人事排程／SCIM、外部教材／xAPI Statements、服務金鑰／簽章 Webhook。入口與支援範圍見 [進階功能說明](ADVANCED.md)。
+- ASP.NET Core Debug 與 Release 建置成功，0 警告、0 錯誤。
+- Angular 嚴格模板與正式建置通過：初始資源 **661.19 kB**，估計傳輸 **150.41 kB**。
+- 真實 SQL Server 隔離整合測試通過 **538 項斷言**，包括原有 357 項與新增流程：逐關簽核／代理／越權拒絕、預算預留與實際支出、附件權限、班次複製、時間衝突、候補順序／保留／到期、評量核准與目標完成條件、證照續證與撤銷、SCIM 來源隔離／群組部門／停權／metadata 格式、xAPI 版本／冪等／來源隔離／作廢、人事自動同步、Webhook 位址限制／失敗重試／HMAC／固定事件 ID，以及 11 類搜尋選擇器。
+- 測試只使用本次隨機資料庫與本機人事／Webhook 接收器；最終測試成功後清理其程序與資料庫，先前本次失敗測試的兩個專用資料庫亦已清理。
+- 瀏覽器以管理員檢查 **8 個入口、31 個分頁**，沒有載入錯誤或 console error；實際驗證課程選擇器搜尋「Excel」、職能矩陣搜尋「林」、簽核關卡表單與手機導覽切換。沒有新增測試員工、預算或授權至日常資料庫。
+- 檢查 1366×900 桌面及 390×844 手機版。手機八個入口均沒有頁面水平溢出；班次長表單正常排列，選單提供可存取名稱，表格及分頁導覽可在各自區域捲動。
+- 升級前完成 COPY_ONLY／CHECKSUM 備份與 RESTORE VERIFYONLY，檔名為 `TrainingManagement-20261106113335-c4a7042356b2489b8d6d19ec8b29707a.bak`，保存在 SQL Server 預設備份目錄。
+- 實際將備份還原至本次隨機 `TrainingManagement_RestoreTest_<GUID>`，執行 DBCC CHECKDB，再以最後 Release API 套用 `AdvancedBusinessFeatures` 與 `AdvancedIntegrityGuards` migrations；**12 門課、22 位員工、91 筆報名及 57 張證書** 完整保留。驗證後只清理本次還原資料庫與程序。
+- 最終發布包 `.runtime/releases/20261106-114816/` 包含 API、Angular 靜態頁與冪等 `migrate.sql`；已驗證新路由 SPA fallback、JavaScript 資源及 API readiness。migration SQL 使用已發布的 Release 組件產生，不會要求重建執行中的 Debug API。
+- 日常資料庫已套用兩個進階 migrations，本機服務以最後修正版啟動：前端與 API readiness 均為 HTTP 200；核心筆數再次確認為 **12／22／91／57**。
+- 尚未連線公司 SSO／MFA、SMTP、實際人事來源、SCIM 身分平台、外部學習平台或正式 Webhook 接收端。SCIM 為文件列出的 Users／Groups 子集；xAPI 為 Statements 閘道，未宣稱完整 LRS 或相容性認證。
+
+## 2026-11-06 企業功能版本
+
+- ASP.NET Core Debug 與 Release 建置通過，0 警告、0 錯誤。
+- Angular 正式建置通過：初始資源 589.81 kB，估計傳輸 137.90 kB。
+- 真實 SQL Server 隔離整合測試通過 **357 項斷言**。包括原有功能與角色／部門／授課範圍、HR、講師降權、上下層部門、版本衝突、報名簽核、名額競爭、必修指派冪等、測驗與出席、認列時數／成本、證書撤銷、問卷、通知、排程、人事 CSV 預覽與交易匯入、教材、CSV 匯出、註冊核准與一次性邀請。
+- 企業管理 12 個頁面於瀏覽器載入無錯誤，實際操作 CSV 預覽並確認可驗證一筆資料；未將介面測試員工寫入名冊。
+- 1366×900 桌面及 390×844 手機版檢查；匯入、學習計畫、帳號、主管報表及教材頁沒有頁面水平溢出，手機導覽可開啟並切換。
+- 升級前以 SQL Server COPY_ONLY／CHECKSUM 完成備份，RESTORE VERIFYONLY 通過。備份位於 SQL Server 預設備份目錄，檔名 `TrainingManagement-before-enterprise-1A3178D3-3297-45A6-BAD0-69629A10A421.bak`。
+- 實際將該備份還原到本次隨機建立的 `TrainingManagement_RestoreTest_<GUID>`，執行 DBCC CHECKDB，再由 Release API 套用 migrations。原有 **12 課程、22 員工、91 報名** 完整保留，補齊 **57 證書**；驗證後停止該次測試程序並僅清理其還原測試資料庫。
+- 發布包驗證 Angular 路由 fallback、JavaScript 資源及 API readiness 通過。發布包與冪等 migration SQL 位於 `.runtime/releases/20261106-102545/`。
+- 日常開發資料庫已升級，前端及 API 已使用最新版本重新啟動。
+- 尚未連線驗證：真實公司 OIDC／MFA、SMTP、人事來源、遠端 GitHub Actions。這些整合的設定、啟用方法及容量限制見 [企業功能說明](ENTERPRISE.md)。
+
+以下為前版的歷史驗證紀錄。
+
 2026-10-10 於 Windows、本機 SQL Server 17.0.1000.7、Angular 開發伺服器及 ASP.NET Core API 完成整合驗證。
 
 | 檢查 | 結果 |

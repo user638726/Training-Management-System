@@ -4,7 +4,7 @@ public enum CourseFormat { InPerson, Online, Hybrid }
 public enum CourseStatus { Draft, Published, Completed, Cancelled }
 public enum EnrollmentStatus { Registered, InProgress, Completed, Cancelled }
 
-public sealed class AppUser
+public sealed partial class AppUser
 {
     public int Id { get; set; }
     public string Username { get; set; } = "";
@@ -18,7 +18,7 @@ public sealed class AppUser
     public Employee? Employee { get; set; }
 }
 
-public sealed class Course
+public sealed partial class Course
 {
     public int Id { get; set; }
     public string Title { get; set; } = "";
@@ -35,7 +35,7 @@ public sealed class Course
     public ICollection<Enrollment> Enrollments { get; set; } = new List<Enrollment>();
 }
 
-public sealed class Employee
+public sealed partial class Employee
 {
     public int Id { get; set; }
     public string EmployeeNumber { get; set; } = "";
@@ -48,7 +48,7 @@ public sealed class Employee
     public ICollection<Enrollment> Enrollments { get; set; } = new List<Enrollment>();
 }
 
-public sealed class Enrollment
+public sealed partial class Enrollment
 {
     public int Id { get; set; }
     public int CourseId { get; set; }

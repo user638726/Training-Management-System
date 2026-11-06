@@ -2,6 +2,14 @@
 
 繁體中文企業訓練管理系統，前端使用 Angular，後端使用 ASP.NET Core Web API，資料保存於 SQL Server，使用 JWT 驗證登入。
 
+## 企業功能版本
+
+已加入 P0–P2 的組織權限、稽核與歷史保存、帳號邀請／註冊核准、SSO 設定介面、必修與複訓、簽核、通知、教材／測驗／出席、證書／問卷、CSV 與人事來源預覽、主管報表及定期報表。操作、外部整合、部署、備份與限制請見 [企業功能說明](docs/ENTERPRISE.md)。SSO、SMTP 與人事系統預設不啟用，需另行提供公司設定。
+
+新註冊帳號預設需由管理員在「帳號與邀請管理」核准；既有帳號保留核准狀態。
+
+另已完成八項進階功能：多階簽核／代理、課程班次／候補、職能矩陣／成長計畫、訓練預算／核銷、外部證照、人事同步／SCIM、外部教材／xAPI 紀錄、服務金鑰／簽章 Webhook。入口、權限、整合介面及範圍限制請見 [進階功能說明](docs/ADVANCED.md)。
+
 ## 功能
 
 - **總覽**：員工數、課程數、完訓率、訓練時數、部門統計與近期課程。
@@ -85,7 +93,7 @@ API 啟動時使用已提交的 EF Core migrations 建立或升級結構。資�
 | `BootstrapAdmin__DisplayName` | 管理員顯示名稱 |
 | `RateLimits__RegisterPermitLimit` | 每個 IP 每分鐘的註冊請求上限，預設 5，範圍 1 至 100 |
 
-API 驗證簽章、演算法、發行者、接收者、期限，以及帳號啟用狀態和 Token 版本。登入與註冊嘗試按 IP 分別限制頻率。前端將 Token 保存在 `sessionStorage`，到期或 API 回傳 401 時重新登入；重新載入時透過 `/api/auth/me` 驗證身分。登出會使該帳號目前所有登入工作階段的 Token 失效。管理員（`Admin`）可維護資料與帳號綁定；一般使用者（`Employee`）可檢視、匯出，並在綁定後自行報名與取消自己的有效報名。尚無部門分級權限。
+API 驗證簽章、演算法、發行者、接收者、期限，以及帳號啟用狀態和 Token 版本。登入與註冊嘗試按 IP 分別限制頻率。前端將 Token 保存在 `sessionStorage`，到期或 API 回傳 401 時重新登入；重新載入時透過 `/api/auth/me` 驗證身分。登出會使該帳號目前所有登入工作階段的 Token 失效。管理員（`Admin`）可維護帳號與訓練；HR 可維護訓練資料；一般使用者（`Employee`）只能檢視及匯出本人資料，並在綁定後自行報名與取消自己的有效報名。另有 HR、部門主管與講師角色，範圍由後端控制，詳見企業功能說明。
 
 正式部署應透過 HTTPS 提供前端與 API，並依實際網域設定 CORS、主機名稱及秘密管理。JWT 設計參考 [ASP.NET Core 官方文件](https://learn.microsoft.com/en-us/aspnet/core/security/authentication/configure-jwt-bearer-authentication?view=aspnetcore-10.0)。
 
@@ -148,7 +156,7 @@ API 整合測試使用 SQL Server 的獨立 `TrainingManagement_Test_<GUID>` 資
 | `POST /api/enrollments/{id}/cancel` | 一般使用者取消自己的有效報名 |
 | `PUT, DELETE /api/enrollments/{id}` | 進度更新及紀錄刪除 |
 
-除健康檢查、登入及註冊外，API 須攜帶 `Authorization: Bearer <token>`；一般使用者僅可新增或取消自己的報名，其他資料寫入須為管理員。錯誤使用 Problem Details：驗證失敗 400、身分驗證失敗 401、權限不足 403、找不到資料 404、重複或名額衝突 409、登入／註冊超過頻率 429。範例見 [API 請求檔](backend/TrainingManagement.Api.http)。
+除健康檢查、登入及註冊外，API 須攜帶 `Authorization: Bearer <token>`；一般使用者僅可新增或取消自己的報名及提交本人的測驗／問卷；管理寫入依 Admin、HR、Manager、Instructor 的授權範圍決定。錯誤使用 Problem Details：驗證失敗 400、身分驗證失敗 401、權限不足 403、找不到資料 404、重複或名額衝突 409、登入／註冊超過頻率 429。範例見 [API 請求檔](backend/TrainingManagement.Api.http)。
 
 ## 目錄
 

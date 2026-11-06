@@ -8,7 +8,7 @@ using TrainingManagement.Api.Models;
 namespace TrainingManagement.Api.Controllers;
 
 [ApiController]
-[Authorize(Roles = "Admin")]
+[Authorize(Roles = Roles.Administrators)]
 [Route("api/accounts")]
 public sealed class AccountsController(TrainingDbContext db, MutationGate gate) : ControllerBase
 {
@@ -46,6 +46,7 @@ public sealed class AccountsController(TrainingDbContext db, MutationGate gate) 
             Email = email,
             Department = request.Department.Trim(),
             JobTitle = request.JobTitle.Trim(),
+            HiredAt = request.HiredAt?.Date ?? DateTime.UtcNow.Date,
             IsActive = request.IsActive
         };
         db.Employees.Add(employee);

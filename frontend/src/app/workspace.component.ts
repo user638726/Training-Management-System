@@ -54,6 +54,9 @@ export class WorkspaceComponent {
   private focusBeforeModal: HTMLElement | null = null;
   private toastTimer?: ReturnType<typeof setTimeout>;
   private focusTimer?: ReturnType<typeof setTimeout>;
+  page = signal(1); total = signal(0); readonly pageSize = 20;
+  private filterTimer?: ReturnType<typeof setTimeout>; private loadSequence = 0;
+  allCategories = signal<string[]>([]); allDepartments = signal<string[]>([]);
   search = signal('');
   accountSearch = signal('');
   categoryFilter = signal('');
@@ -65,8 +68,8 @@ export class WorkspaceComponent {
   reportDepartmentFilter = signal('');
   reportStatusFilter = signal('');
 
-  categories = computed(() => [...new Set(this.courses().map(c => c.category))].sort((a, b) => a.localeCompare(b, 'zh-Hant')));
-  departments = computed(() => [...new Set(this.employees().map(e => e.department))].sort((a, b) => a.localeCompare(b, 'zh-Hant')));
+  categories = this.allCategories;
+  departments = this.allDepartments;
   filteredCourses = computed(() => this.courses().filter(course => {
     const query = this.search().trim().toLocaleLowerCase();
     return (!query || [course.title, course.description, course.instructor].some(value => value.toLocaleLowerCase().includes(query)))
@@ -97,7 +100,7 @@ export class WorkspaceComponent {
   }).sort((a, b) => new Date(b.registeredAt).getTime() - new Date(a.registeredAt).getTime()));
   reportRows = computed(() => this.enrollments().filter(e => (!this.reportDepartmentFilter() || e.department === this.reportDepartmentFilter()) && (!this.reportStatusFilter() || e.status === this.reportStatusFilter())));
   reportCompleted = computed(() => this.reportRows().filter(e => e.status === 'Completed').length);
-  reportHours = computed(() => this.reportRows().filter(e => e.status === 'Completed').reduce((sum, e) => sum + (this.courses().find(c => c.id === e.courseId)?.durationHours ?? 0), 0));
+  reportHours = computed(() => this.reportRows().filter(e => e.status === 'Completed').reduce((sum, e) => sum + (e.recognizedHours ?? this.courses().find(c => c.id === e.courseId)?.durationHours ?? 0), 0));
   reportAverageScore = computed(() => {
     const scores = this.reportRows().filter(e => e.status === 'Completed' && e.score !== null).map(e => e.score!);
     return scores.length ? scores.reduce((sum, s) => sum + s, 0) / scores.length : null;
@@ -117,18 +120,28 @@ export class WorkspaceComponent {
 
   constructor() {
     this.loadData();
-    this.destroyRef.onDestroy(() => { clearTimeout(this.toastTimer); clearTimeout(this.focusTimer); });
+    this.destroyRef.onDestroy(() => { clearTimeout(this.toastTimer); clearTimeout(this.focusTimer); clearTimeout(this.filterTimer); });
   }
 
   loadData(refresh = false) {
     this.error.set('');
     if (refresh && this.dashboard()) this.refreshing.set(true); else this.loading.set(true);
-    forkJoin({ courses: this.api.courses(), employees: this.api.employees(), enrollments: this.api.enrollments(),
+    const sequence = ++this.loadSequence;
+    const params: Record<string, string> = { page: String(this.page()), pageSize: String(this.pageSize), search: this.search() };
+    if (this.section === 'courses') { params['category'] = this.categoryFilter(); params['status'] = this.courseStatusFilter(); }
+    if (this.section === 'employees') { params['department'] = this.departmentFilter(); if (this.employeeStateFilter()) params['isActive'] = String(this.employeeStateFilter() === 'active'); }
+    if (this.section === 'enrollments') { params['department'] = this.departmentFilter(); params['status'] = this.enrollmentStatusFilter(); if (this.enrollmentCourseFilter()) params['courseId'] = this.enrollmentCourseFilter(); }
+    if (this.section === 'reports') { params['department'] = this.reportDepartmentFilter(); params['status'] = this.reportStatusFilter(); }
+    const resource = this.section === 'courses' ? 'courses' : this.section === 'employees' ? 'employees' : 'enrollments';
+    forkJoin({ courses: this.section === 'courses' ? of([] as Course[]) : this.api.courses(), employees: this.section === 'employees' ? of([] as Employee[]) : this.api.employees(), enrollments: ['enrollments', 'reports'].includes(this.section) ? of([] as Enrollment[]) : this.api.enrollments(),
+      paged: this.section === 'overview' ? of(null) : this.api.page<Course | Employee | Enrollment>(resource, params), facets: this.api.facets(),
       dashboard: this.api.dashboard(), accounts: this.auth.canManage() ? this.api.accounts() : of([] as AuthUser[]),
       profile: this.auth.canManage() ? of(null) : this.auth.refreshProfile() })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: result => { this.courses.set(result.courses); this.employees.set(result.employees); this.enrollments.set(result.enrollments); this.dashboard.set(result.dashboard); this.accounts.set(result.accounts); this.loading.set(false); this.refreshing.set(false); },
-        error: (error: HttpErrorResponse) => { this.error.set(this.errorMessage(error)); this.loading.set(false); this.refreshing.set(false); }
+        next: result => { if (sequence !== this.loadSequence) return; this.allCategories.set(result.facets.categories); this.allDepartments.set(result.facets.departments); this.courses.set(result.courses); this.employees.set(result.employees); this.enrollments.set(result.enrollments); this.dashboard.set(result.dashboard); this.accounts.set(result.accounts);
+          if (result.paged) { this.total.set(result.paged.total); if (this.section === 'courses') this.courses.set(result.paged.items as Course[]); else if (this.section === 'employees') this.employees.set(result.paged.items as Employee[]); else this.enrollments.set(result.paged.items as Enrollment[]); }
+          this.loading.set(false); this.refreshing.set(false); },
+        error: (error: HttpErrorResponse) => { if (sequence !== this.loadSequence) return; this.error.set(this.errorMessage(error)); this.loading.set(false); this.refreshing.set(false); }
       });
   }
 
@@ -156,10 +169,10 @@ export class WorkspaceComponent {
 
   openCourse(course?: Course) {
     this.editId = course?.id ?? null;
-    this.courseForm = course ? { title: course.title, description: course.description, category: course.category, instructor: course.instructor, location: course.location, format: course.format, startDate: this.localDateInput(new Date(course.startDate)), endDate: this.localDateInput(new Date(course.endDate)), durationHours: course.durationHours, capacity: course.capacity, status: course.status } : this.newCourse();
+    this.courseForm = course ? { rowVersion: course.rowVersion, title: course.title, description: course.description, category: course.category, instructor: course.instructor, location: course.location, format: course.format, startDate: this.localDateInput(new Date(course.startDate)), endDate: this.localDateInput(new Date(course.endDate)), durationHours: course.durationHours, capacity: course.capacity, status: course.status } : this.newCourse();
     this.openModal('course');
   }
-  openEmployee(employee?: Employee) { this.selectedAccount = null; this.editId = employee?.id ?? null; this.employeeForm = employee ? { employeeNumber: employee.employeeNumber, name: employee.name, email: employee.email, department: employee.department, jobTitle: employee.jobTitle, isActive: employee.isActive } : this.newEmployee(); this.openModal('employee'); }
+  openEmployee(employee?: Employee) { this.selectedAccount = null; this.editId = employee?.id ?? null; this.employeeForm = employee ? { hiredAt: employee.hiredAt?.slice(0, 10), rowVersion: employee.rowVersion, employeeNumber: employee.employeeNumber, name: employee.name, email: employee.email, department: employee.department, jobTitle: employee.jobTitle, isActive: employee.isActive } : this.newEmployee(); this.openModal('employee'); }
   openEmployeeForAccount(account: AuthUser) {
     if (account.employeeId !== null) return;
     this.selectedAccount = account;
@@ -170,8 +183,8 @@ export class WorkspaceComponent {
   selfEnroll(course: Course) {
     if (this.auth.canManage() || this.enrollingCourseId() !== null || !this.auth.user()?.employeeId || this.myEnrollment(course.id)) return;
     this.enrollingCourseId.set(course.id);
-    this.api.selfEnroll(course.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => { this.enrollingCourseId.set(null); this.showToast(`已成功報名「${course.title}」。`); this.loadData(true); },
+    (course.requiresApproval ? this.api.requestApproval(course.id) : this.api.selfEnroll(course.id)).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.enrollingCourseId.set(null); this.showToast(course.requiresApproval ? `已送出「${course.title}」報名申請。` : `已成功報名「${course.title}」。`); this.loadData(true); },
       error: (error: HttpErrorResponse) => { this.enrollingCourseId.set(null); this.showToast(this.errorMessage(error)); this.loadData(true); }
     });
   }
@@ -215,7 +228,7 @@ export class WorkspaceComponent {
     if (!Number.isInteger(Number(input.capacity))) { this.formError.set('課程名額必須為整數。'); return; }
     if (new Date(input.endDate) <= new Date(input.startDate)) { this.formError.set('課程結束時間必須晚於開始時間。'); return; }
     if (![input.title, input.category, input.instructor, input.location].every(v => v.trim())) { this.formError.set('課程名稱、分類、講師與地點不可只包含空白。'); return; }
-    const payload: CourseInput = { ...input, title: input.title.trim(), description: input.description.trim(), category: input.category.trim(), instructor: input.instructor.trim(), location: input.location.trim(), startDate: new Date(input.startDate).toISOString(), endDate: new Date(input.endDate).toISOString(), durationHours: Number(input.durationHours), capacity: Number(input.capacity) };
+    const payload: CourseInput = { ...input, rowVersion: input.rowVersion, title: input.title.trim(), description: input.description.trim(), category: input.category.trim(), instructor: input.instructor.trim(), location: input.location.trim(), startDate: new Date(input.startDate).toISOString(), endDate: new Date(input.endDate).toISOString(), durationHours: Number(input.durationHours), capacity: Number(input.capacity) };
     this.save(this.api.saveCourse(payload, this.editId), this.editId === null ? '課程已建立。' : '課程資料已更新。');
   }
   saveEmployee(form: NgForm) {
@@ -223,7 +236,7 @@ export class WorkspaceComponent {
     if (!form.valid) { form.control.markAllAsTouched(); this.formError.set('請確認必填欄位與電子郵件格式。'); return; }
     const input = this.employeeForm;
     if (![input.employeeNumber, input.name, input.department, input.jobTitle].every(v => v.trim())) { this.formError.set('員工編號、姓名、部門與職稱不可只包含空白。'); return; }
-    const payload = { ...input, employeeNumber: input.employeeNumber.trim(), name: input.name.trim(), email: input.email.trim(), department: input.department.trim(), jobTitle: input.jobTitle.trim() };
+    const payload = { ...input, rowVersion: input.rowVersion, hiredAt: input.hiredAt || undefined, employeeNumber: input.employeeNumber.trim(), name: input.name.trim(), email: input.email.trim(), department: input.department.trim(), jobTitle: input.jobTitle.trim() };
     this.save(this.selectedAccount ? this.api.createEmployeeForAccount(Number(this.selectedAccount.id), payload) : this.api.saveEmployee(payload, this.editId),
       this.selectedAccount ? '新員工已建立，帳號現在可以自行報名課程。' : this.editId === null ? '員工已新增。' : '員工資料已更新。');
   }
@@ -236,7 +249,7 @@ export class WorkspaceComponent {
     if (!this.canManageAction()) return;
     if (!form.valid || !this.selectedEnrollment) { form.control.markAllAsTouched(); this.formError.set('進度與分數需介於 0 到 100。'); return; }
     if (!Number.isInteger(Number(this.progressForm.progress))) { this.formError.set('學習進度必須為 0 到 100 的整數百分比。'); return; }
-    this.save(this.api.updateEnrollment(this.selectedEnrollment.id, this.progressForm.status, Number(this.progressForm.progress), this.progressForm.score === null || this.progressForm.score === undefined ? null : Number(this.progressForm.score)), '學習紀錄已更新。');
+    this.save(this.api.updateEnrollment(this.selectedEnrollment.id, this.progressForm.status, Number(this.progressForm.progress), this.progressForm.score === null || this.progressForm.score === undefined ? null : Number(this.progressForm.score), this.selectedEnrollment.rowVersion), '學習紀錄已更新。');
   }
   confirmDelete() {
     if (!this.canManageAction()) return;
@@ -264,13 +277,14 @@ export class WorkspaceComponent {
     return false;
   }
   private showToast(message: string) { clearTimeout(this.toastTimer); this.toast.set(message); this.toastTimer = setTimeout(() => this.toast.set(''), 4500); }
-  resetFilters() { this.search.set(''); this.categoryFilter.set(''); this.courseStatusFilter.set(''); this.departmentFilter.set(''); this.employeeStateFilter.set(''); this.enrollmentStatusFilter.set(''); this.enrollmentCourseFilter.set(''); this.reportDepartmentFilter.set(''); this.reportStatusFilter.set(''); }
+  filterChanged() { this.page.set(1); clearTimeout(this.filterTimer); this.filterTimer = setTimeout(() => this.loadData(true), 250); }
+  movePage(delta: number) { this.page.update(p => p + delta); this.loadData(true); }
+  resetFilters() { this.search.set(''); this.categoryFilter.set(''); this.courseStatusFilter.set(''); this.departmentFilter.set(''); this.employeeStateFilter.set(''); this.enrollmentStatusFilter.set(''); this.enrollmentCourseFilter.set(''); this.reportDepartmentFilter.set(''); this.reportStatusFilter.set(''); this.filterChanged(); }
 
   exportReport() {
-    if (!this.reportRows().length) return;
-    const rows: (string | number)[][] = [['員工編號', '員工姓名', '部門', '課程名稱', '狀態', '學習進度 (%)', '測驗分數', '課程時數', '報名日期', '完訓日期'], ...this.reportRows().map(e => [e.employeeNumber, e.employeeName, e.department, e.courseTitle, this.statusLabels[e.status], e.progress, e.score ?? '', this.hoursFor(e.courseId), this.dateOnly(e.registeredAt), e.completedAt ? this.dateOnly(e.completedAt) : ''])];
-    const escape = (value: string | number) => { let text = String(value); if (/^[\s]*[=+\-@]/.test(text) || /^[\t\r\n]/.test(text)) text = `'${text}`; return `"${text.replace(/"/g, '""')}"`; };
-    const blob = new Blob(['\uFEFF' + rows.map(row => row.map(escape).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = `育成_訓練報表_${this.localDateInput(this.today).slice(0, 10)}.csv`; document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 0); this.showToast(`已匯出 ${this.reportRows().length} 筆訓練紀錄。`);
+    this.api.exportReport(this.reportDepartmentFilter(), this.reportStatusFilter()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: blob => { const url = URL.createObjectURL(blob); const link = document.createElement('a'); link.href = url; link.download = 'training-report.csv'; link.click(); setTimeout(() => URL.revokeObjectURL(url), 1000); this.showToast('報表已匯出並記錄稽核。'); },
+      error: (e: HttpErrorResponse) => this.error.set(this.errorMessage(e))
+    });
   }
 }

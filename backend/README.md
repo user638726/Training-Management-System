@@ -1,5 +1,9 @@
 # 企業訓練管理 Web API
 
+八項進階模組、SCIM 支援範圍、xAPI Statements 閘道及 Webhook 簽章介面請見 [進階功能說明](../docs/ADVANCED.md)。
+
+企業版本的角色、核准、簽核、教材、學習計畫、整合及維運 API 請見 [企業功能說明](../docs/ENTERPRISE.md)。以下核心 API 仍保留；讀取範圍現在由本人、部門或授課關係限制，HR 亦可維護訓練資料。
+
 ASP.NET Core 10 Web API、EF Core 10、SQL Server，以及 JWT Bearer 登入。課程、員工、報名與儀表板 API 全部需要有效 JWT；註冊、登入與健康檢查允許匿名。資料庫結構由版本化 EF Core migrations 建立與更新，不使用 SQLite 或 `EnsureCreated`。
 
 從專案根目錄執行開發啟動腳本，會準備未納入版本控制的 `.runtime/development.secrets.json`。單獨啟動後端時，Development 環境亦會讀取該檔案；環境變數與命令列設定會覆寫其中內容。
@@ -39,7 +43,7 @@ Development 示範資料只在全新、未匯入的核心資料表建立，日�
 
 帳號會去除前後空白，限 3 至 80 字元的 ASCII 英文、數字、點、底線及連字號，不區分大小寫且不得重複。顯示名稱去除前後空白後必填且最多 100 字元。密碼不得為空白，長度 12 至 256 字元；兩次輸入必須完全相同。無效輸入回傳 400，重複帳號（包含同時註冊競爭）回傳 409。註冊使用獨立的每 IP 每分鐘 5 次限制，超過回傳 429；不會占用登入額度。
 
-Employee 可查看課程、員工、報名及統計，並使用個人身分查詢與登出。管理員從 `/api/accounts` 找到待處理註冊帳號，再以 `POST /api/accounts/{id}/employee` 傳入完整員工資料，在單一交易中新增員工並對應帳號。帳號與員工一對一，員工編號不能由註冊者自行指定；已具員工資料的帳號回傳 409。完成後 Employee 可對 `/api/enrollments/self` 傳入 `{ "courseId": 123 }` 自行報名，由 `/api/enrollments/mine` 查詢自己的紀錄，或以 `POST /api/enrollments/{id}/cancel` 取消自己的已報名／學習中紀錄。取消後紀錄保留但不占名額；已完訓及重複取消回傳 409，取消他人紀錄回傳 403。只有 Admin 可以新增、修改或刪除課程、員工與他人的報名紀錄。未登入存取受保護資源回傳 401；一般帳號嘗試管理寫入回傳 403。Bootstrap 管理員維持 Admin 權限。
+Employee 可查看已發布課程、本人員工／報名及本人統計，並使用個人身分查詢與登出。管理員從 `/api/accounts` 找到待處理註冊帳號，再以 `POST /api/accounts/{id}/employee` 傳入完整員工資料，在單一交易中新增員工並對應帳號。帳號與員工一對一，員工編號不能由註冊者自行指定；已具員工資料的帳號回傳 409。完成後 Employee 可對 `/api/enrollments/self` 傳入 `{ "courseId": 123 }` 自行報名，由 `/api/enrollments/mine` 查詢自己的紀錄，或以 `POST /api/enrollments/{id}/cancel` 取消自己的已報名／學習中紀錄。取消後紀錄保留但不占名額；已完訓及重複取消回傳 409，取消他人紀錄回傳 403。Admin、HR 可以維護課程、員工與報名；報名紀錄以取消取代刪除。未登入存取受保護資源回傳 401；一般帳號嘗試管理寫入回傳 403。Bootstrap 管理員維持 Admin 權限。
 
 `POST /api/auth/login` 使用 `{ "username": "帳號", "password": "密碼" }` 登入，成功回傳 accessToken、tokenType、expiresAt，以及 `{ id, username, displayName, role, employeeId }` 使用者物件。帳號不區分大小寫；密碼區分大小寫。
 
@@ -85,4 +89,4 @@ dotnet tool run dotnet-ef migrations list
 dotnet tool run dotnet-ef migrations add YourChange --output-dir Data/Migrations
 ```
 
-後續資料結構變更需新增 migration。正式部署還需配置 HTTPS、管理員生命週期、稽核與備份；若整合企業單一登入，應改採標準 OIDC 身分提供者。
+後續資料結構變更需新增 migration。企業版本已加入帳號生命週期、稽核、備份／還原工具與標準 OIDC 整合。正式環境的 HTTPS、企業身分平台與秘密管理設定見企業功能說明。

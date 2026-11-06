@@ -5,6 +5,7 @@ namespace TrainingManagement.Api.Models;
 
 public sealed class CourseRequest : IValidatableObject
 {
+    public string? RowVersion { get; set; }
     [Required(ErrorMessage = "請輸入課程名稱。"), StringLength(160)]
     public string Title { get; set; } = "";
     [StringLength(4000)]
@@ -38,6 +39,8 @@ public sealed class CourseRequest : IValidatableObject
 
 public sealed class EmployeeRequest
 {
+    public string? RowVersion { get; set; }
+    public DateTime? HiredAt { get; set; }
     [Required(ErrorMessage = "請輸入員工編號。"), StringLength(30),
      RegularExpression(@"^[A-Za-z0-9_-]+$", ErrorMessage = "員工編號只能包含英文、數字、底線與連字號。")]
     public string EmployeeNumber { get; set; } = "";
@@ -70,6 +73,7 @@ public sealed class SelfEnrollmentRequest
 
 public sealed class UpdateEnrollmentRequest : IValidatableObject
 {
+    public string? RowVersion { get; set; }
     [JsonRequired, EnumDataType(typeof(EnrollmentStatus))]
     public EnrollmentStatus Status { get; set; }
     [JsonRequired, Range(0, 100, ErrorMessage = "學習進度必須介於 0 與 100 之間。")]
@@ -88,14 +92,18 @@ public sealed class UpdateEnrollmentRequest : IValidatableObject
 
 public sealed record CourseResponse(int Id, string Title, string Description, string Category,
     string Instructor, string Location, CourseFormat Format, DateTime StartDate, DateTime EndDate,
-    decimal DurationHours, int Capacity, CourseStatus Status, int EnrolledCount, int CompletedCount);
+    decimal DurationHours, int Capacity, CourseStatus Status, int EnrolledCount, int CompletedCount,
+    string RowVersion = "", int Revision = 1, bool RequiresApproval = false, int? InstructorUserId = null,
+    bool RequiresAttendance = false, bool RequiresQuiz = false, decimal PassScore = 60, decimal Cost = 0,
+    int? PrerequisiteCourseId = null, int? CertificateValidityMonths = null, int? SeriesId = null, int? ApprovalPolicyId = null, int? BudgetId = null, bool CheckScheduleConflicts = false);
 
 public sealed record EmployeeResponse(int Id, string EmployeeNumber, string Name, string Email,
-    string Department, string JobTitle, bool IsActive);
+    string Department, string JobTitle, bool IsActive, string RowVersion = "", DateTime? HiredAt = null);
 
 public sealed record EnrollmentResponse(int Id, int CourseId, int EmployeeId, string EmployeeName,
     string EmployeeNumber, string Department, string CourseTitle, EnrollmentStatus Status,
-    int Progress, decimal? Score, DateTime RegisteredAt, DateTime? CompletedAt);
+    int Progress, decimal? Score, DateTime RegisteredAt, DateTime? CompletedAt,
+    decimal? RecognizedHours = null, bool Attended = false, int Attempt = 1, string RowVersion = "");
 
 public sealed record DepartmentStatistics(string Department, int EmployeeCount, int EnrollmentCount,
     int CompletedCount, decimal TrainingHours);

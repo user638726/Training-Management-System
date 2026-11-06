@@ -3,7 +3,7 @@ using TrainingManagement.Api.Models;
 
 namespace TrainingManagement.Api.Data;
 
-public sealed class TrainingDbContext(DbContextOptions<TrainingDbContext> options) : DbContext(options)
+public sealed partial class TrainingDbContext(DbContextOptions<TrainingDbContext> options, IHttpContextAccessor? accessor = null) : DbContext(options)
 {
     public DbSet<Course> Courses => Set<Course>();
     public DbSet<Employee> Employees => Set<Employee>();
@@ -12,6 +12,7 @@ public sealed class TrainingDbContext(DbContextOptions<TrainingDbContext> option
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        ConfigureEnterprise(modelBuilder);
         modelBuilder.Entity<Course>(entity =>
         {
             entity.Property(x => x.Title).HasMaxLength(160);

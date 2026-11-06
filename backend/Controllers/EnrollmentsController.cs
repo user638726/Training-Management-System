@@ -10,41 +10,47 @@ namespace TrainingManagement.Api.Controllers;
 
 [ApiController]
 [Route("api/enrollments")]
-public sealed class EnrollmentsController(TrainingDbContext db, MutationGate gate) : ControllerBase
+public sealed class EnrollmentsController(TrainingDbContext db, MutationGate gate, DataScope scope, TrainingService training, BudgetService budgets, WaitlistService waitlist) : ControllerBase
 {
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<EnrollmentResponse>>> GetAll(CancellationToken cancellationToken)
+    public async Task<ActionResult<IReadOnlyList<EnrollmentResponse>>> GetAll([FromQuery] ListQuery filter, CancellationToken cancellationToken)
     {
-        var enrollments = await db.Enrollments.AsNoTracking().Include(x => x.Course).Include(x => x.Employee)
-            .OrderByDescending(x => x.RegisteredAt).ToListAsync(cancellationToken);
+        var query = (await scope.Enrollments(cancellationToken)).AsNoTracking();
+        if (!string.IsNullOrWhiteSpace(filter.Search)) { var q = filter.Search.Trim(); query = query.Where(x => x.Employee.Name.Contains(q) || x.Employee.EmployeeNumber.Contains(q) || (x.CourseTitleSnapshot ?? x.Course.Title).Contains(q)); }
+        if (!string.IsNullOrWhiteSpace(filter.Department)) query = query.Where(x => (x.DepartmentSnapshot ?? x.Employee.Department) == filter.Department);
+        if (filter.CourseId.HasValue) query = query.Where(x => x.CourseId == filter.CourseId);
+        if (!string.IsNullOrWhiteSpace(filter.Status)) { if (!Enum.TryParse<EnrollmentStatus>(filter.Status, out var status)) throw new ApiException(400, "學習狀態無效。"); query = query.Where(x => x.Status == status); }
+        Response.Headers["X-Total-Count"] = (await query.CountAsync(cancellationToken)).ToString();
+        var enrollments = await query.Include(x => x.Course).Include(x => x.Employee).OrderByDescending(x => x.RegisteredAt).ThenBy(x => x.Id)
+            .Skip(filter.Offset).Take(filter.Limit).ToListAsync(cancellationToken);
         return Ok(enrollments.Select(ToResponse).ToList());
     }
 
     [HttpGet("{id:int}")]
     public async Task<ActionResult<EnrollmentResponse>> Get(int id, CancellationToken cancellationToken)
     {
-        var enrollment = await db.Enrollments.AsNoTracking().Include(x => x.Course).Include(x => x.Employee)
+        var enrollment = await (await scope.Enrollments(cancellationToken)).AsNoTracking().Include(x => x.Course).Include(x => x.Employee)
             .SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (enrollment is null) throw new ApiException(404, "找不到此報名紀錄。");
         return Ok(ToResponse(enrollment));
     }
 
     [HttpGet("mine")]
-    [Authorize(Roles = "Employee")]
+    [Authorize(Roles = "Employee,Manager,Instructor")]
     public async Task<ActionResult<IReadOnlyList<EnrollmentResponse>>> Mine(CancellationToken cancellationToken)
     {
         var userId = int.Parse(User.FindFirstValue("sub")!);
         var employeeId = await db.AppUsers.Where(x => x.Id == userId).Select(x => x.EmployeeId)
             .SingleAsync(cancellationToken);
         if (employeeId is null) return Ok(Array.Empty<EnrollmentResponse>());
-        var enrollments = await db.Enrollments.AsNoTracking().Include(x => x.Course).Include(x => x.Employee)
+        var enrollments = await (await scope.Enrollments(cancellationToken)).AsNoTracking().Include(x => x.Course).Include(x => x.Employee)
             .Where(x => x.EmployeeId == employeeId).OrderByDescending(x => x.RegisteredAt)
             .ToListAsync(cancellationToken);
         return Ok(enrollments.Select(ToResponse).ToList());
     }
 
     [HttpPost("self")]
-    [Authorize(Roles = "Employee")]
+    [Authorize(Roles = "Employee,Manager,Instructor")]
     public async Task<ActionResult<EnrollmentResponse>> SelfEnroll(SelfEnrollmentRequest request, CancellationToken cancellationToken)
     {
         var userId = int.Parse(User.FindFirstValue("sub")!);
@@ -52,7 +58,7 @@ public sealed class EnrollmentsController(TrainingDbContext db, MutationGate gat
     }
 
     [HttpPost("{id:int}/cancel")]
-    [Authorize(Roles = "Employee")]
+    [Authorize(Roles = "Employee,Manager,Instructor")]
     public async Task<ActionResult<EnrollmentResponse>> SelfCancel(int id, CancellationToken cancellationToken)
     {
         using var write = await gate.EnterAsync(cancellationToken);
@@ -70,15 +76,17 @@ public sealed class EnrollmentsController(TrainingDbContext db, MutationGate gat
             throw new ApiException(403, "只能取消自己的報名紀錄。");
         if (enrollment.Status is EnrollmentStatus.Cancelled or EnrollmentStatus.Completed)
             throw new ApiException(409, "此報名狀態無法取消。");
+        await budgets.Release(enrollment,cancellationToken);
         enrollment.Status = EnrollmentStatus.Cancelled;
         enrollment.CompletedAt = null;
         await db.SaveChangesAsync(cancellationToken);
+        if(enrollment.Status==EnrollmentStatus.Cancelled){await waitlist.Promote(enrollment.CourseId,cancellationToken);await db.SaveChangesAsync(cancellationToken);}
         await transaction.CommitAsync(cancellationToken);
         return Ok(ToResponse(enrollment));
     }
 
     [HttpPost]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = Roles.Administrators)]
     public async Task<ActionResult<EnrollmentResponse>> Create(CreateEnrollmentRequest request, CancellationToken cancellationToken)
         => await RegisterForEmployee(request.CourseId, request.EmployeeId, null, cancellationToken);
 
@@ -92,24 +100,7 @@ public sealed class EnrollmentsController(TrainingDbContext db, MutationGate gat
         {
             employeeId = await LinkedEmployeeIdForUpdate(authenticatedUserId, cancellationToken);
         }
-        var course = await db.Courses.FindAsync([courseId], cancellationToken);
-        if (course is null) throw new ApiException(404, "找不到此課程。");
-        var employee = await db.Employees.FindAsync([employeeId!.Value], cancellationToken);
-        if (employee is null) throw new ApiException(404, "找不到此員工。");
-        EnsureRegistrationAllowed(course, employee);
-        var existing = await db.Enrollments.SingleOrDefaultAsync(
-            x => x.CourseId == courseId && x.EmployeeId == employeeId, cancellationToken);
-        if (existing is not null && existing.Status != EnrollmentStatus.Cancelled)
-            throw new ApiException(409, "此員工已報名本課程。");
-        await EnsureCapacity(course, cancellationToken);
-
-        var enrollment = existing ?? new Enrollment { Course = course, Employee = employee };
-        enrollment.Status = EnrollmentStatus.Registered;
-        enrollment.Progress = 0;
-        enrollment.Score = null;
-        enrollment.RegisteredAt = DateTime.UtcNow;
-        enrollment.CompletedAt = null;
-        if (existing is null) db.Enrollments.Add(enrollment);
+        var enrollment = await training.Register(courseId, employeeId!.Value, userId == null, cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return CreatedAtAction(nameof(Get), new { id = enrollment.Id }, ToResponse(enrollment));
@@ -125,7 +116,7 @@ public sealed class EnrollmentsController(TrainingDbContext db, MutationGate gat
     }
 
     [HttpPut("{id:int}")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = Roles.Administrators)]
     public async Task<ActionResult<EnrollmentResponse>> Update(int id, UpdateEnrollmentRequest request, CancellationToken cancellationToken)
     {
         using var write = await gate.EnterAsync(cancellationToken);
@@ -139,11 +130,13 @@ public sealed class EnrollmentsController(TrainingDbContext db, MutationGate gat
         if (enrollment is null) throw new ApiException(404, "找不到此報名紀錄。");
         if (enrollment.Status == EnrollmentStatus.Cancelled && request.Status != EnrollmentStatus.Cancelled)
         {
-            EnsureRegistrationAllowed(enrollment.Course, enrollment.Employee);
-            await EnsureCapacity(enrollment.Course, cancellationToken);
+            await training.Register(enrollment.CourseId,enrollment.EmployeeId,true,cancellationToken);
         }
-        enrollment.CompletedAt = request.Status == EnrollmentStatus.Completed
-            ? enrollment.CompletedAt ?? DateTime.UtcNow : null;
+        DataScope.CheckVersion(enrollment.RowVersion, request.RowVersion);
+        if (request.Status != EnrollmentStatus.Completed) await training.Reopen(enrollment, cancellationToken);
+        if (request.Status == EnrollmentStatus.Completed) await training.Complete(enrollment, cancellationToken);
+        else enrollment.CompletedAt = null;
+        if(request.Status==EnrollmentStatus.Cancelled) await budgets.Release(enrollment,cancellationToken);
         enrollment.Status = request.Status;
         enrollment.Progress = request.Progress;
         enrollment.Score = request.Score;
@@ -153,7 +146,7 @@ public sealed class EnrollmentsController(TrainingDbContext db, MutationGate gat
     }
 
     [HttpDelete("{id:int}")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = Roles.Administrators)]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         using var write = await gate.EnterAsync(cancellationToken);
@@ -164,10 +157,7 @@ public sealed class EnrollmentsController(TrainingDbContext db, MutationGate gat
         await CourseWriteLock.AcquireAsync(db, courseId.Value, cancellationToken);
         var enrollment = await db.Enrollments.FindAsync([id], cancellationToken);
         if (enrollment is null) throw new ApiException(404, "找不到此報名紀錄。");
-        db.Enrollments.Remove(enrollment);
-        await db.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
-        return NoContent();
+        throw new ApiException(409, "企業訓練紀錄不可刪除，請改為取消報名以保留歷程。");
     }
 
     private static void EnsureRegistrationAllowed(Course course, Employee employee)
@@ -186,7 +176,8 @@ public sealed class EnrollmentsController(TrainingDbContext db, MutationGate gat
 
     private static EnrollmentResponse ToResponse(Enrollment enrollment) => new(enrollment.Id,
         enrollment.CourseId, enrollment.EmployeeId, enrollment.Employee.Name, enrollment.Employee.EmployeeNumber,
-        enrollment.Employee.Department, enrollment.Course.Title, enrollment.Status, enrollment.Progress,
+        enrollment.DepartmentSnapshot ?? enrollment.Employee.Department, enrollment.CourseTitleSnapshot ?? enrollment.Course.Title, enrollment.Status, enrollment.Progress,
         enrollment.Score, DateTime.SpecifyKind(enrollment.RegisteredAt, DateTimeKind.Utc),
-        enrollment.CompletedAt is { } completed ? DateTime.SpecifyKind(completed, DateTimeKind.Utc) : null);
+        enrollment.CompletedAt is { } completed ? DateTime.SpecifyKind(completed, DateTimeKind.Utc) : null,
+        enrollment.RecognizedHours, enrollment.Attended, enrollment.Attempt, Convert.ToBase64String(enrollment.RowVersion));
 }

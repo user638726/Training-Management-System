@@ -63,7 +63,7 @@ public static class JwtAuthentication
                     var db = context.HttpContext.RequestServices.GetRequiredService<TrainingDbContext>();
                     var user = await db.AppUsers.AsNoTracking().SingleOrDefaultAsync(x => x.Id == id,
                         context.HttpContext.RequestAborted);
-                    if (user is null || !user.IsActive || user.TokenVersion != version)
+                    if (user is null || !user.IsActive || !user.IsApproved || user.TokenVersion != version)
                         context.Fail("身分驗證已失效。");
                 }
             };

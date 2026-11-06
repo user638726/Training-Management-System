@@ -1,0 +1,37 @@
+name: Validate application
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  build-and-integration:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Build web application
+        shell: pwsh
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build
+          exit $LASTEXITCODE
+      - name: Start isolated SQL LocalDB
+        shell: pwsh
+        run: |
+          sqllocaldb start MSSQLLocalDB
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Get-Command sqlcmd -ErrorAction Stop
+      - name: Run API and enterprise integration tests
+        shell: powershell
+        run: ./tests/Invoke-SmokeTest.ps1 -SqlServerInstance '(localdb)\MSSQLLocalDB'

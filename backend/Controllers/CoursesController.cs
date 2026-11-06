@@ -9,27 +9,32 @@ namespace TrainingManagement.Api.Controllers;
 
 [ApiController]
 [Route("api/courses")]
-public sealed class CoursesController(TrainingDbContext db, MutationGate gate) : ControllerBase
+public sealed class CoursesController(TrainingDbContext db, MutationGate gate, DataScope scope, TrainingService training) : ControllerBase
 {
     [HttpGet]
-    public async Task<ActionResult<IReadOnlyList<CourseResponse>>> GetAll(CancellationToken cancellationToken)
+    public async Task<ActionResult<IReadOnlyList<CourseResponse>>> GetAll([FromQuery] ListQuery filter, CancellationToken cancellationToken)
     {
-        var courses = await db.Courses.AsNoTracking().Include(x => x.Enrollments)
-            .OrderByDescending(x => x.StartDate).ToListAsync(cancellationToken);
-        return Ok(courses.Select(ToResponse).ToList());
+        var query = scope.Courses().AsNoTracking();
+        if (!string.IsNullOrWhiteSpace(filter.Search)) { var q = filter.Search.Trim(); query = query.Where(x => x.Title.Contains(q) || x.Description.Contains(q) || x.Instructor.Contains(q)); }
+        if (!string.IsNullOrWhiteSpace(filter.Category)) query = query.Where(x => x.Category == filter.Category);
+        if (!string.IsNullOrWhiteSpace(filter.Status)) { if (!Enum.TryParse<CourseStatus>(filter.Status, out var status)) throw new ApiException(400, "課程狀態無效。"); query = query.Where(x => x.Status == status); }
+        Response.Headers["X-Total-Count"] = (await query.CountAsync(cancellationToken)).ToString();
+        var courses = await query.OrderByDescending(x => x.StartDate).ThenBy(x => x.Id).Skip(filter.Offset).Take(filter.Limit)
+            .Select(c => new { Course = c, Enrolled = c.Enrollments.Count(e => e.Status != EnrollmentStatus.Cancelled), Completed = c.Enrollments.Count(e => e.Status == EnrollmentStatus.Completed) }).ToListAsync(cancellationToken);
+        return Ok(courses.Select(x => ToResponse(x.Course) with { EnrolledCount = x.Enrolled, CompletedCount = x.Completed }).ToList());
     }
 
     [HttpGet("{id:int}")]
     public async Task<ActionResult<CourseResponse>> Get(int id, CancellationToken cancellationToken)
     {
-        var course = await db.Courses.AsNoTracking().Include(x => x.Enrollments)
+        var course = await scope.Courses().AsNoTracking().Include(x => x.Enrollments)
             .SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (course is null) throw new ApiException(404, "找不到此課程。");
         return Ok(ToResponse(course));
     }
 
     [HttpPost]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = Roles.Administrators)]
     public async Task<ActionResult<CourseResponse>> Create(CourseRequest request, CancellationToken cancellationToken)
     {
         using var write = await gate.EnterAsync(cancellationToken);
@@ -41,7 +46,7 @@ public sealed class CoursesController(TrainingDbContext db, MutationGate gate) :
     }
 
     [HttpPut("{id:int}")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = Roles.Administrators)]
     public async Task<ActionResult<CourseResponse>> Update(int id, CourseRequest request, CancellationToken cancellationToken)
     {
         using var write = await gate.EnterAsync(cancellationToken);
@@ -49,16 +54,20 @@ public sealed class CoursesController(TrainingDbContext db, MutationGate gate) :
         await CourseWriteLock.AcquireAsync(db, id, cancellationToken);
         var course = await db.Courses.Include(x => x.Enrollments).SingleOrDefaultAsync(x => x.Id == id, cancellationToken);
         if (course is null) throw new ApiException(404, "找不到此課程。");
+        DataScope.CheckVersion(course.RowVersion, request.RowVersion);
         if (request.Capacity < course.Enrollments.Count(x => x.Status != EnrollmentStatus.Cancelled))
             throw new ApiException(409, "課程名額不能少於目前有效報名人數。");
+        course.Revision++;
         Apply(course, request);
+        foreach (var employeeId in await db.Enrollments.Where(x => x.CourseId == id && x.Status != EnrollmentStatus.Cancelled).Select(x => x.EmployeeId).ToListAsync(cancellationToken))
+            await training.NotifyEmployee(employeeId, "課程異動", $"「{course.Title}」資料已更新，請查看課程時間與地點。", $"course:{id}:{course.Revision}:{employeeId}", cancellationToken);
         await db.SaveChangesAsync(cancellationToken);
         await transaction.CommitAsync(cancellationToken);
         return Ok(ToResponse(course));
     }
 
     [HttpDelete("{id:int}")]
-    [Authorize(Roles = "Admin")]
+    [Authorize(Roles = Roles.Administrators)]
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         using var write = await gate.EnterAsync(cancellationToken);
@@ -94,5 +103,7 @@ public sealed class CoursesController(TrainingDbContext db, MutationGate gate) :
         DateTime.SpecifyKind(course.StartDate, DateTimeKind.Utc), DateTime.SpecifyKind(course.EndDate, DateTimeKind.Utc),
         course.DurationHours, course.Capacity, course.Status,
         course.Enrollments.Count(x => x.Status != EnrollmentStatus.Cancelled),
-        course.Enrollments.Count(x => x.Status == EnrollmentStatus.Completed));
+        course.Enrollments.Count(x => x.Status == EnrollmentStatus.Completed), Convert.ToBase64String(course.RowVersion),
+        course.Revision, course.RequiresApproval, course.InstructorUserId, course.RequiresAttendance,
+        course.RequiresQuiz, course.PassScore, course.Cost, course.PrerequisiteCourseId, course.CertificateValidityMonths, course.SeriesId, course.ApprovalPolicyId, course.BudgetId, course.CheckScheduleConflicts);
 }

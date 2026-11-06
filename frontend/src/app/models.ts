@@ -5,16 +5,17 @@ export interface Course {
   id: number; title: string; description: string; category: string; instructor: string; location: string;
   format: CourseFormat; startDate: string; endDate: string; durationHours: number; capacity: number;
   status: CourseStatus; enrolledCount: number; completedCount: number;
+  seriesId?:number|null; approvalPolicyId?:number|null; budgetId?:number|null; checkScheduleConflicts?:boolean; rowVersion?: string; revision?: number; requiresApproval?: boolean; instructorUserId?: number | null; requiresAttendance?: boolean; requiresQuiz?: boolean; passScore?: number; cost?: number; prerequisiteCourseId?: number | null; certificateValidityMonths?: number | null;
 }
 export type CourseInput = Omit<Course, 'id' | 'enrolledCount' | 'completedCount'>;
 export interface Employee {
-  id: number; employeeNumber: string; name: string; email: string; department: string; jobTitle: string; isActive: boolean;
+  id: number; employeeNumber: string; name: string; email: string; department: string; jobTitle: string; isActive: boolean; rowVersion?: string; hiredAt?: string;
 }
 export type EmployeeInput = Omit<Employee, 'id'>;
 export interface Enrollment {
   id: number; courseId: number; employeeId: number; employeeName: string; employeeNumber: string;
   department: string; courseTitle: string; status: EnrollmentStatus; progress: number;
-  score: number | null; registeredAt: string; completedAt: string | null;
+  score: number | null; registeredAt: string; completedAt: string | null; recognizedHours?: number | null; attended?: boolean; attempt?: number; rowVersion?: string;
 }
 export interface Dashboard {
   employeeCount: number; courseCount: number; activeCourseCount: number; enrollmentCount: number;

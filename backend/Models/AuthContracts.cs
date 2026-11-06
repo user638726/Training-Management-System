@@ -31,9 +31,9 @@ public sealed class RegisterRequest
     public string ConfirmPassword { get; set; } = "";
 }
 
-public sealed record UserResponse(int Id, string Username, string DisplayName, string Role, int? EmployeeId)
+public sealed record UserResponse(int Id, string Username, string DisplayName, string Role, int? EmployeeId, bool IsActive = true, bool IsApproved = true, string RowVersion = "")
 {
-    public static UserResponse From(AppUser user) => new(user.Id, user.Username, user.DisplayName, user.Role, user.EmployeeId);
+    public static UserResponse From(AppUser user) => new(user.Id, user.Username, user.DisplayName, user.Role, user.EmployeeId, user.IsActive, user.IsApproved, Convert.ToBase64String(user.RowVersion));
 }
 
 public sealed record LoginResponse(string AccessToken, string TokenType, DateTime ExpiresAt, UserResponse User);

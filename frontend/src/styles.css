@@ -2662,3 +2662,8 @@ app-shell { display:block; min-width:0 }
   .read-only-notice { font-size:9px; align-items:flex-start; gap:8px; padding:10px 12px; margin-bottom:18px }
   .read-only-notice app-icon { margin-top:2px }
 }
+
+.sidebar nav{overflow-y:auto;min-height:0;flex-shrink:1}.sidebar-note{flex-shrink:0}.sidebar-footer{flex-shrink:0}.sidebar nav a{min-height:40px}
+@media(max-height:850px){.sidebar-note{display:none}}
+
+.server-pagination{display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-wrap:wrap;margin:0 0 20px;color:var(--muted);font-size:12px}.server-pagination .button{padding:7px 14px;min-height:34px}

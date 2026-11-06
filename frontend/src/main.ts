@@ -4,6 +4,9 @@ import { provideRouter, withInMemoryScrolling } from '@angular/router';
 import { registerLocaleData } from '@angular/common';
 import localeZh from '@angular/common/locales/zh-Hant';
 import { LOCALE_ID, provideZonelessChangeDetection } from '@angular/core';
+import { AdvancedComponent } from './app/advanced.component';
+import { EnterpriseComponent } from './app/enterprise.component';
+import { InviteComponent } from './app/invite.component';
 import { AppComponent } from './app/app.component';
 import { WorkspaceComponent } from './app/workspace.component';
 import { LoginComponent } from './app/login.component';
@@ -20,9 +23,12 @@ bootstrapApplication(AppComponent, {
     provideZonelessChangeDetection(), provideHttpClient(withInterceptors([authInterceptor])), { provide: LOCALE_ID, useValue: 'zh-Hant' },
     provideRouter([
       { path: 'login', title: '育成｜登入企業學習工作台', component: LoginComponent },
+      { path: 'invite', title: '育成｜接受公司邀請', component: InviteComponent },
       { path: 'register', title: '育成｜建立帳號', component: RegisterComponent },
       { path: '', component: ShellComponent, canActivate: [authGuard], canActivateChild: [authGuard], children: [
         { path: '', pathMatch: 'full', redirectTo: 'overview' },
+        ...['workflows','sessions','competencies','budgets','credentials','provisioning','learning-records','api-integrations'].map(section=>({path:section,title:'育成｜進階企業功能',component:AdvancedComponent,data:{advancedSection:section}})),
+        ...['organization', 'accounts', 'plans', 'learning', 'approvals', 'materials', 'notifications', 'management-reports', 'audit', 'imports', 'integrations', 'settings'].map(section => ({ path: section, title: '育成｜企業學習管理', component: EnterpriseComponent, data: { enterpriseSection: section } })),
         ...Object.keys(sectionTitles).map(section => ({ path: section, title: `育成｜${sectionTitles[section]}`, component: WorkspaceComponent, data: { section } }))
       ] },
       { path: '**', redirectTo: 'overview' }

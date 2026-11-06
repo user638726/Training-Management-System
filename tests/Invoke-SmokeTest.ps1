@@ -18,6 +18,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\Invoke-SmokeTest.ps1
 param(
     [ValidateNotNullOrEmpty()]
     [string] $SqlServerInstance = 'localhost',
+    [ValidateSet('Debug','Release')] [string] $Configuration = 'Debug',
     [switch] $NoBuild,
     [switch] $KeepArtifacts
 )
@@ -53,6 +54,7 @@ function Protect-DiagnosticText {
         $script:employeeToken)) {
         if (-not [string]::IsNullOrEmpty($secret)) { $Text = $Text.Replace($secret, '[redacted]') }
     }
+    $Text = [regex]::Replace($Text, 'tm_[A-Za-z0-9_-]{40,}', '[integration key redacted]')
     return [regex]::Replace($Text,
         'eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+', '[JWT redacted]')
 }
@@ -68,6 +70,7 @@ function New-RandomSecret {
 
 function Invoke-TestSql {
     param([string] $Query)
+    $Query = "SET QUOTED_IDENTIFIER ON; " + $Query
     $output = @(& $script:sqlcmdPath -S $script:SqlServerInstance -E -N -C -b `
         -l 10 -t 30 -d master -h -1 -W -Q $Query 2>&1)
     if ($LASTEXITCODE -ne 0) {
@@ -268,7 +271,7 @@ try {
 
     if (-not $NoBuild) {
         Write-Host 'Building the API...'
-        & dotnet build $projectPath --configuration Debug --nologo --verbosity minimal
+        & dotnet build $projectPath --configuration $Configuration --nologo --verbosity minimal
         if ($LASTEXITCODE -ne 0) { throw "API build failed with exit code $LASTEXITCODE." }
     }
 
@@ -276,7 +279,7 @@ try {
     $targetFramework = @($projectXml.Project.PropertyGroup.TargetFramework |
         Where-Object { -not [string]::IsNullOrWhiteSpace($_) })[0]
     $assemblyPath = Join-Path (Split-Path $projectPath -Parent) (
-        "bin\Debug\$targetFramework\TrainingManagement.Api.dll")
+        "bin\$Configuration\$targetFramework\TrainingManagement.Api.dll")
     if (-not (Test-Path -LiteralPath $assemblyPath -PathType Leaf)) {
         throw "Built API assembly was not found: $assemblyPath. Run without -NoBuild."
     }
@@ -310,6 +313,8 @@ try {
         ConnectionStrings__TrainingDatabase = $connectionBuilder.ConnectionString
         ASPNETCORE_ENVIRONMENT = 'Development'
         SeedDemoData = 'true'
+        Enterprise__RequireRegistrationApproval = 'false'
+        Enterprise__WorkerEnabled = 'false'
         LegacyImportPath = ''
         BootstrapAdmin__Username = $adminUsername
         BootstrapAdmin__Password = $adminPassword
@@ -739,7 +744,7 @@ try {
         -BearerToken $employeeToken -ExpectedStatus 403
     $otherAfterCancelAttempt = Invoke-Api -Method GET -Path "/api/enrollments/$($enrollmentB.id)"
     Assert-That ($otherAfterCancelAttempt.status -eq 'Registered') `
-        'A user cannot cancel another employee’s enrollment.'
+        'A user cannot cancel the enrollment of another employee.'
     $null = Invoke-Api -Method PUT -Path "/api/enrollments/$($selfEnrollment.id)" `
         -Body @{ status = 'Completed'; progress = 100; score = 88 }
     $null = Invoke-Api -Method POST -Path "/api/enrollments/$($selfEnrollment.id)/cancel" `
@@ -768,10 +773,14 @@ try {
         -BearerToken $employeeToken -ExpectedStatus 404
 
     foreach ($employeeReadPath in @('/api/courses', "/api/courses/$($course.id)",
-        '/api/employees', "/api/employees/$($employeeA.id)",
-        '/api/enrollments', "/api/enrollments/$($enrollmentA.id)", '/api/dashboard')) {
+        '/api/employees',
+        '/api/enrollments', '/api/dashboard')) {
         $null = Invoke-Api -Method GET -Path $employeeReadPath -BearerToken $employeeToken
     }
+    $null = Invoke-Api -Method GET -Path "/api/employees/$($employeeA.id)" -BearerToken $employeeToken -ExpectedStatus 404
+    $null = Invoke-Api -Method GET -Path "/api/enrollments/$($enrollmentA.id)" -BearerToken $employeeToken -ExpectedStatus 404
+    $scopedEmployees = @(Invoke-Api -Method GET -Path '/api/employees' -BearerToken $employeeToken)
+    Assert-That ($scopedEmployees.Count -eq 1 -and $scopedEmployees[0].id -eq $newEmployee.id) 'Employees can only list their own personnel record.'
     $employeeWriteCases = @(
         @{ path = '/api/courses'; id = $course.id; body = $courseBody },
         @{ path = '/api/employees'; id = $employeeA.id; body = $employeeBodyA },
@@ -828,6 +837,8 @@ try {
     Assert-That ($newCurrentUser.id -eq $login.user.id) 'The administrator can authenticate again after logout.'
     $null = Invoke-Api -Method GET -Path '/api/dashboard'
 
+    . (Join-Path $PSScriptRoot 'Enterprise-Cases.ps1')
+    . (Join-Path $PSScriptRoot 'Advanced-Cases.ps1')
     $passed = $true
 }
 catch {

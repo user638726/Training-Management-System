@@ -15,7 +15,7 @@ import { IconComponent } from './icon.component';
         <div class="workspace-label"><span class="workspace-dot"></span>企業學習工作台<span class="workspace-tag">{{auth.canManage() ? '管理端' : '檢視端'}}</span></div>
         <div class="nav-caption">工作空間</div>
         <nav>
-          @for (item of navigation; track item.path) {
+          @for (item of visibleNavigation(); track item.path) {
             <a [routerLink]="item.path" routerLinkActive="active" ariaCurrentWhenActive="page" (click)="mobileOpen.set(false)"><app-icon [name]="item.icon" /><span>{{item.label}}</span><span class="nav-indicator"></span></a>
           }
         </nav>
@@ -43,8 +43,37 @@ export class ShellComponent {
     { path: '/courses', label: '課程管理', icon: 'book' },
     { path: '/employees', label: '員工管理', icon: 'users' },
     { path: '/enrollments', label: '報名與學習紀錄', icon: 'graduate' },
-    { path: '/reports', label: '訓練報表', icon: 'chart' }
+    { path: '/reports', label: '訓練報表', icon: 'chart' },
+    { path: '/learning', label: '我的學習中心', icon: 'graduate' },
+    { path: '/plans', label: '必修與學習計畫', icon: 'book' },
+    { path: '/approvals', label: '報名簽核', icon: 'circlecheck' },
+    { path: '/materials', label: '教材、測驗與出席', icon: 'book' },
+    { path: '/notifications', label: '通知中心', icon: 'alert' },
+    { path: '/management-reports', label: '主管決策報表', icon: 'chart' },
+    { path: '/organization', label: '組織與部門權限', icon: 'users' },
+    { path: '/accounts', label: '帳號與邀請管理', icon: 'users' },
+    { path: '/imports', label: '員工批次匯入', icon: 'users' },
+    { path: '/audit', label: '操作稽核', icon: 'chart' },
+    { path: '/integrations', label: '企業整合與維運', icon: 'overview' },
+    { path: '/settings', label: '帳號安全設定', icon: 'users' },
+    { path: '/workflows', label: '多階簽核與代理', icon: 'circlecheck' },
+    { path: '/sessions', label: '課程班次與候補', icon: 'book' },
+    { path: '/competencies', label: '職能與成長計畫', icon: 'graduate' },
+    { path: '/budgets', label: '訓練預算與費用', icon: 'chart' },
+    { path: '/credentials', label: '外部證照管理', icon: 'graduate' },
+    { path: '/provisioning', label: '人事自動同步', icon: 'users' },
+    { path: '/learning-records', label: '跨平台學習紀錄', icon: 'book' },
+    { path: '/api-integrations', label: 'API 與事件串接', icon: 'overview' }
   ];
+  visibleNavigation() {
+    const role = this.auth.user()?.role;
+    return this.navigation.filter(item => {
+      if (['/accounts', '/audit', '/integrations','/provisioning','/api-integrations'].includes(item.path)) return role === 'Admin';
+      if (['/organization', '/plans', '/imports'].includes(item.path)) return this.auth.canManage();
+      if (item.path === '/materials') return this.auth.canManage() || role === 'Instructor';
+      return true;
+    });
+  }
   logout() {
     if (this.auth.logoutBusy()) return;
     this.mobileOpen.set(false);

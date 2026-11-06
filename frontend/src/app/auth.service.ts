@@ -25,7 +25,7 @@ export type SessionValidation = 'authenticated' | 'unauthenticated' | 'unavailab
 export type SessionNotice = 'expired' | 'unauthorized' | 'unavailable' | 'logout' | 'logout-unavailable' | 'registered' | null;
 
 const STORAGE_KEY = 'yucheng.auth.session';
-const PROTECTED_PATHS = new Set(['/overview', '/courses', '/employees', '/enrollments', '/reports']);
+const PROTECTED_PATHS = new Set(['/workflows','/sessions','/competencies','/budgets','/credentials','/provisioning','/learning-records','/api-integrations','/organization','/accounts','/plans','/learning','/approvals','/materials','/notifications','/management-reports','/audit','/imports','/integrations','/settings','/overview', '/courses', '/employees', '/enrollments', '/reports']);
 
 // Only known internal pages can be used as a post-login destination.
 export function safeReturnUrl(value: string | null | undefined): string {
@@ -49,10 +49,10 @@ export class AuthService {
   readonly logoutBusy = signal(false);
   readonly validating = signal(false);
   readonly hasSession = computed(() => this.session() !== null);
-  readonly canManage = computed(() => this.user()?.role === 'Admin');
+  readonly canManage = computed(() => ['Admin', 'HR'].includes(this.user()?.role || ''));
   readonly roleLabel = computed(() => {
     const role = this.user()?.role;
-    return role === 'Admin' ? '系統管理員' : role === 'HR' ? '人資管理員' : role === 'Employee' ? '一般使用者' : role || '';
+    return role === 'Admin' ? '系統管理員' : role === 'HR' ? '人資管理員' : role === 'Manager' ? '部門主管' : role === 'Instructor' ? '講師' : role === 'Employee' ? '一般使用者' : role || '';
   });
   readonly initials = computed(() => {
     const name = this.user()?.displayName.trim() || this.user()?.username || '';
@@ -122,7 +122,11 @@ export class AuthService {
   login(username: string, password: string): Observable<LoginResponse> {
     return this.http.post<LoginResponse>('/api/auth/login', { username: username.trim(), password }).pipe(
       timeout(15000),
-      tap(response => {
+      tap(response => this.establishSession(response))
+    );
+  }
+
+  private establishSession(response: LoginResponse) {
         const expiry = Date.parse(response.expiresAt);
         if (response.tokenType !== 'Bearer' || !response.accessToken || !Number.isFinite(expiry) || expiry <= Date.now() || !response.user) {
           throw new Error('Invalid authentication response');
@@ -133,10 +137,8 @@ export class AuthService {
         this.notice.set(null);
         this.persistSession();
         this.scheduleExpiration();
-      })
-    );
   }
-
+  redeemSso(code: string) { return this.http.post<LoginResponse>('/api/auth/sso/redeem', { code }).pipe(timeout(15000), tap(response => this.establishSession(response))); }
   refreshProfile(): Observable<AuthUser> {
     return this.http.get<AuthUser>('/api/auth/me').pipe(tap(user => this.user.set(user)));
   }
