@@ -71,7 +71,7 @@ function New-RandomSecret {
 function Invoke-TestSql {
     param([string] $Query)
     $Query = "SET QUOTED_IDENTIFIER ON; " + $Query
-    $output = @(& $script:sqlcmdPath -S $script:SqlServerInstance -E -N -C -b `
+    $output = @(& $script:sqlcmdPath -S $script:SqlServerInstance -E -b `
         -l 10 -t 30 -d master -h -1 -W -Q $Query 2>&1)
     if ($LASTEXITCODE -ne 0) {
         $diagnostic = Protect-DiagnosticText ($output -join [Environment]::NewLine)
@@ -299,7 +299,7 @@ try {
     $connectionBuilder.Add('Server', $SqlServerInstance)
     $connectionBuilder.Add('Database', $databaseName)
     $connectionBuilder.Add('Trusted_Connection', 'True')
-    $connectionBuilder.Add('Encrypt', 'True')
+    $connectionBuilder.Add('Encrypt', 'False')
     $connectionBuilder.Add('TrustServerCertificate', 'True')
     $connectionBuilder.Add('Connect Timeout', '10')
     $signingKey = New-RandomSecret
